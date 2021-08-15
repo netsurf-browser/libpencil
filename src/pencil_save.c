@@ -46,13 +46,13 @@ static void pencil_save_pass1(struct pencil_save_context *context,
 		struct pencil_item *item, unsigned int depth);
 static void pencil_save_pass1_text_callback(void *c,
 		const char *font_name, unsigned int font_size,
-		const char *s8, unsigned short *s16, unsigned int n,
+		const uint8_t *s8, const uint32_t *s32, unsigned int n,
 		int x, int y);
 static void pencil_save_pass2(struct pencil_save_context *context,
 		struct pencil_item *item, unsigned int depth);
 static void pencil_save_pass2_text_callback(void *c,
 		const char *font_name, unsigned int font_size,
-		const char *s8, unsigned short *s16, unsigned int n,
+		const uint8_t *s8, const uint32_t *s32, unsigned int n,
 		int x, int y);
 
 
@@ -192,7 +192,7 @@ void pencil_save_pass1(struct pencil_save_context *context,
 		break;
 	case pencil_TEXT:
 	{
-		int bbox[4];
+		os_box bbox;
 		int width;
 
 		code = rufl_paint_callback(item->font_family, item->font_style,
@@ -205,7 +205,7 @@ void pencil_save_pass1(struct pencil_save_context *context,
 			return;
 
 		code = rufl_font_bbox(item->font_family, item->font_style,
-				item->font_size, bbox);
+				item->font_size, &bbox);
 		if (code != rufl_OK)
 			context->code = code;
 		if (context->code != pencil_OK)
@@ -222,7 +222,7 @@ void pencil_save_pass1(struct pencil_save_context *context,
 		item->bbox.x0 = item->x * 256;
 		item->bbox.y0 = item->y * 256;
 		item->bbox.x1 = (item->x + width) * 256;
-		item->bbox.y1 = (item->y + (bbox[3] - bbox[1])) * 256;
+		item->bbox.y1 = (item->y + (bbox.y1 - bbox.y0)) * 256;
 	}
 		break;
 	case pencil_PATH:
@@ -290,7 +290,7 @@ void pencil_save_pass1(struct pencil_save_context *context,
 
 void pencil_save_pass1_text_callback(void *c,
 		const char *font_name, unsigned int font_size,
-		const char *s8, unsigned short *s16, unsigned int n,
+		const uint8_t *s8, const uint32_t *s32, unsigned int n,
 		int x, int y)
 {
 	struct pencil_save_context *context = c;
@@ -301,7 +301,7 @@ void pencil_save_pass1_text_callback(void *c,
 	(void) x;  /* unused */
 	(void) y;  /* unused */
 
-	assert(s8 || s16);
+	assert(s8 || s32);
 
 	/* check if the font name is new */
 	for (i = 0; i != context->font_count &&
@@ -331,12 +331,14 @@ void pencil_save_pass1_text_callback(void *c,
 	} else {
 		unsigned int utf8_length = 0;
 		for (i = 0; i != n; i++) {
-			if (s16[i] < 0x80)
+			if (s32[i] < 0x80)
 				utf8_length += 1;
-			else if (s16[i] < 0x800)
+			else if (s32[i] < 0x800)
 				utf8_length += 2;
-			else
+			else if (s32[i] < 0x10000)
 				utf8_length += 3;
+			else
+				utf8_length += 4;
 		}
 		context->size += 24 + 56 + ((utf8_length + 4) & ~3);
 	}
@@ -470,14 +472,14 @@ void pencil_save_pass2(struct pencil_save_context *context,
 
 void pencil_save_pass2_text_callback(void *c,
 		const char *font_name, unsigned int font_size,
-		const char *s8, unsigned short *s16, unsigned int n,
+		const uint8_t *s8, const uint32_t *s32, unsigned int n,
 		int x, int y)
 {
 	struct pencil_save_context *context = c;
 	drawfile_object *object = (drawfile_object *) context->b;
 	unsigned int i;
 
-	assert(s8 || s16);
+	assert(s8 || s32);
 
 	/* find font index */
 	for (i = 0; i != context->font_count &&
@@ -506,24 +508,30 @@ void pencil_save_pass2_text_callback(void *c,
 	object->data.trfm_text.base.y = y * 256;
 
 	if (s8) {
-		strncpy(object->data.trfm_text.text, s8, n);
+		strncpy(object->data.trfm_text.text, (const char *) s8, n);
 		object->size = 24 + 56 + ((n + 4) & ~3);
 	} else {
 		char *z = object->data.trfm_text.text;
 		unsigned int utf8_length = 0;
 		for (i = 0; i != n; i++) {
-			if (s16[i] < 0x80) {
-				*z++ = s16[i];
+			if (s32[i] < 0x80) {
+				*z++ = s32[i];
 				utf8_length += 1;
-			} else if (s16[i] < 0x800) {
-				*z++ = 0xc0 | ((s16[i] >> 6) & 0x1f);
-				*z++ = 0x80 | (s16[i] & 0x3f);
+			} else if (s32[i] < 0x800) {
+				*z++ = 0xc0 | ((s32[i] >> 6) & 0x1f);
+				*z++ = 0x80 | (s32[i] & 0x3f);
 				utf8_length += 2;
-			} else {
-				*z++ = 0xe0 | (s16[i] >> 12);
-				*z++ = 0x80 | ((s16[i] >> 6) & 0x3f);
-				*z++ = 0x80 | (s16[i] & 0x3f);
+			} else if (s32[i] < 0x10000) {
+				*z++ = 0xe0 | (s32[i] >> 12);
+				*z++ = 0x80 | ((s32[i] >> 6) & 0x3f);
+				*z++ = 0x80 | (s32[i] & 0x3f);
 				utf8_length += 3;
+			} else {
+				*z++ = 0xf0 | (s32[i] >> 18);
+				*z++ = 0x80 | ((s32[i] >> 12) & 0x3f);
+				*z++ = 0x80 | ((s32[i] >> 6) & 0x3f);
+				*z++ = 0x80 | (s32[i] & 0x3f);
+				utf8_length += 4;
 			}
 		}
 		object->size = 24 + 56 + ((utf8_length + 4) & ~3);
