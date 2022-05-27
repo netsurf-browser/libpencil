@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <oslib/osfile.h>
 #include <oslib/osspriteop.h>
+#include <oslib/squash.h>
 #include <rufl.h>
 #include "pencil.h"
 
@@ -46,12 +47,13 @@ void test_pencil(void)
 	pencil_code code;
 	int path[] = {2, 100, 40, 8, 100, 400, 8, 300, 300, 0};
 	char utf8_test[] = "Hello,	world! ὕαλον "
-			"Uherské Hradiště. 𐀀";
+			"Uherské Hradiště. 𐀀\xf0\xa0\x80\xa1";
 	char *drawfile_buffer;
 	size_t drawfile_size;
 	os_error *error;
 	fileswitch_object_type obj_type;
 	int size;
+	bits load;
 	osspriteop_area *area;
 
 	diagram = pencil_create();
@@ -94,7 +96,7 @@ void test_pencil(void)
 		return;
 	}
 
-	error = xosfile_read_no_path(SPRITE, &obj_type, 0, 0, &size, 0);
+	error = xosfile_read_no_path(SPRITE, &obj_type, &load, 0, &size, 0);
 	if (error) {
 		printf("xosfile_read_no_path failed: 0x%x: %s\n",
 				error->errnum, error->errmess);
@@ -104,23 +106,121 @@ void test_pencil(void)
 		printf("File " SPRITE " does not exist\n");
 		return;
 	}
-
-	area = malloc(size + 4);
-	if (!area) {
-		printf("Out of memory\n");
+	if ((load & 0xfff00000) != 0xfff00000 ||
+			((load & 0xfff00) != 0xff900 &&
+			 (load & 0xfff00) != 0xfca00)) {
+		printf("File " SPRITE " is not a sprite file\n");
 		return;
 	}
-	area->size = size + 4;
-	area->sprite_count = 0;
-	area->first = 0;
-	area->used = 16;
 
-	error = xosspriteop_load_sprite_file(osspriteop_USER_AREA,
-			area, SPRITE);
-	if (error) {
-		printf("xosspriteop_load_sprite_file failed: 0x%x: %s\n",
-				error->errnum, error->errmess);
-		return;
+	if ((load & 0xfff00) == 0xfca00) {
+		/* File is squashed */
+		squash_output_status status;
+		struct squash_file_base sf;
+		char *buf, *ws;
+		int wslen;
+		FILE *fp;
+
+		fp = fopen(SPRITE, "r");
+		if (!fp) {
+			printf("Failed opening " SPRITE "\n");
+			return;
+		}
+		if (fread(&sf, 1, sizeof(sf), fp) != sizeof(sf)) {
+			printf("Failed loading squash header\n");
+			fclose(fp);
+			return;
+		}
+		if ((sf.load_addr & 0xffffff00) != 0xfffff900) {
+			printf("File " SPRITE " is not a sprite file\n");
+			fclose(fp);
+			return;
+		}
+
+		buf = malloc(size - sizeof(sf));
+		if (!buf) {
+			printf("Out of memory\n");
+			fclose(fp);
+			return;
+		}
+		if (fread(buf, 1, size - sizeof(sf), fp) != size - sizeof(sf)) {
+			printf("Failed reading squashed data\n");
+			free(buf);
+			fclose(fp);
+			return;
+		}
+
+		error = xsquash_decompress_return_sizes(size - sizeof(sf),
+				&wslen, NULL);
+		if (error) {
+			printf("xsquash_decompress_return_sizes failed: 0x%x: %s\n",
+					error->errnum, error->errmess);
+			free(buf);
+			fclose(fp);
+			return;
+		}
+
+		ws = malloc(wslen);
+		if (!ws) {
+			printf("Out of memory\n");
+			free(buf);
+			fclose(fp);
+			return;
+		}
+
+		area = malloc(sf.size + 4);
+		if (!area) {
+			printf("Out of memory\n");
+			free(ws);
+			free(buf);
+			fclose(fp);
+			return;
+		}
+		area->size = sf.size + 4;
+
+		error = xsquash_decompress(squash_INPUT_ALL_PRESENT, ws,
+				(byte *) buf, size - sizeof(sf),
+				(byte *) &area->sprite_count, sf.size,
+				&status, NULL, NULL, NULL, NULL);
+		if (error) {
+			printf("xsquash_decompress failed: 0x%x: %s\n",
+					error->errnum, error->errmess);
+			free(area);
+			free(ws);
+			free(buf);
+			fclose(fp);
+			return;
+		}
+		if (status != 0) {
+			printf("xsquash_decompress did not complete: %x\n", status);
+			free(area);
+			free(ws);
+			free(buf);
+			fclose(fp);
+			return;
+		}
+
+		free(ws);
+		free(buf);
+		fclose(fp);
+	} else {
+		area = malloc(size + 4);
+		if (!area) {
+			printf("Out of memory\n");
+			return;
+		}
+		area->size = size + 4;
+		area->sprite_count = 0;
+		area->first = 0;
+		area->used = 16;
+
+		error = xosspriteop_load_sprite_file(osspriteop_USER_AREA,
+				area, SPRITE);
+		if (error) {
+			printf("xosspriteop_load_sprite_file failed: 0x%x: %s\n",
+					error->errnum, error->errmess);
+			return;
+		}
 	}
 
 	code = pencil_sprite(diagram, 400, 200, 200, 100,
