@@ -29,15 +29,6 @@ else
   CFLAGS := $(CFLAGS) -Dinline="__inline__"
 endif
 
-# OSLib
-ifneq ($(findstring clean,$(MAKECMDGOALS)),clean)
-  ifeq ($(HOST),arm-unknown-riscos)
-    CFLAGS := $(CFLAGS) -I$(PREFIX)/include
-    LDFLAGS := $(LDFLAGS) -lOSLib32
-    TESTLDFLAGS := $(TESTLDFLAGS) -static
-  endif
-endif
-
 # RUfl
 ifneq ($(findstring clean,$(MAKECMDGOALS)),clean)
   ifneq ($(PKGCONFIG),)
@@ -46,6 +37,15 @@ ifneq ($(findstring clean,$(MAKECMDGOALS)),clean)
   else
     CFLAGS := $(CFLAGS) -I$(PREFIX)/include
     LDFLAGS := $(LDFLAGS) -lrufl
+  endif
+endif
+
+# OSLib
+ifneq ($(findstring clean,$(MAKECMDGOALS)),clean)
+  ifeq ($(findstring -riscos,$(HOST)),-riscos)
+    CFLAGS := $(CFLAGS) -I$(PREFIX)/include
+    LDFLAGS := $(LDFLAGS) -lOSLib32
+    TESTLDFLAGS := $(TESTLDFLAGS) -static
   endif
 endif
 
