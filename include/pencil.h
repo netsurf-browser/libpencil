@@ -17,7 +17,7 @@ struct pencil_diagram;
 
 
 typedef enum {
-	pencil_OK,
+	pencil_OK = rufl_OK,
 	pencil_OUT_OF_MEMORY = rufl_OUT_OF_MEMORY,
 	pencil_FONT_MANAGER_ERROR = rufl_FONT_MANAGER_ERROR,
 	pencil_FONT_NOT_FOUND = rufl_FONT_NOT_FOUND,

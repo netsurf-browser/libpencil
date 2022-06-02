@@ -107,8 +107,9 @@ pencil_code pencil_save_drawfile(struct pencil_diagram *diagram,
 	header->tag[3] = 'w';
 	header->major_version = 201;
 	header->minor_version = 0;
-	strncpy(header->source, source, 12);
-	for (i = strlen(source); i < 12; i++)
+	i = strlen(source);
+	memcpy(header->source, source, (i < 12) ? i : 12);
+	for (; i < 12; i++)
 		header->source[i] = ' ';
 	header->bbox = context.bbox;
 	b = (char *) buffer + sizeof(drawfile_diagram_base);
@@ -200,14 +201,14 @@ void pencil_save_pass1(struct pencil_save_context *context,
 				item->x, item->y,
 				pencil_save_pass1_text_callback, context);
 		if (code != rufl_OK)
-			context->code = code;
+			context->code = (pencil_code) code;
 		if (context->code != pencil_OK)
 			return;
 
 		code = rufl_font_bbox(item->font_family, item->font_style,
 				item->font_size, &bbox);
 		if (code != rufl_OK)
-			context->code = code;
+			context->code = (pencil_code) code;
 		if (context->code != pencil_OK)
 			return;
 
@@ -215,7 +216,7 @@ void pencil_save_pass1(struct pencil_save_context *context,
 				item->font_size, item->text, strlen(item->text),
 				&width);
 		if (code != rufl_OK)
-			context->code = code;
+			context->code = (pencil_code) code;
 		if (context->code != pencil_OK)
 			return;
 
@@ -369,8 +370,10 @@ void pencil_save_pass2(struct pencil_save_context *context,
 		group = true;
 		object->type = drawfile_TYPE_GROUP;
 		object->size = 36;
-		strncpy(object->data.group.name, item->group_name, 12);
-		for (i = strlen(item->group_name); i < 12; i++)
+		i = strlen(item->group_name);
+		memcpy(object->data.group.name, item->group_name,
+				(i < 12) ? i : 12);
+		for (; i < 12; i++)
 			object->data.group.name[i] = ' ';
 		object->data.group.bbox.x0 = item->bbox.x0;
 		object->data.group.bbox.y0 = item->bbox.y0;
@@ -385,7 +388,7 @@ void pencil_save_pass2(struct pencil_save_context *context,
 				item->x, item->y,
 				pencil_save_pass2_text_callback, context);
 		if (code != rufl_OK)
-			context->code = code;
+			context->code = (pencil_code) code;
 		if (context->code != pencil_OK)
 			return;
 		break;
