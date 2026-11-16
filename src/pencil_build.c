@@ -211,9 +211,11 @@ void pencil_free(struct pencil_diagram *diagram)
 
 void pencil_free_item(struct pencil_item *item)
 {
-	for (struct pencil_item *child = item->children; child;
-			child = child->next)
+	while (item->children != NULL) {
+		struct pencil_item *child = item->children;
+		item->children = child->next;
 		pencil_free_item(child);
+	}
 	free(item->group_name);
 	free(item->text);
 	free(item->path);
